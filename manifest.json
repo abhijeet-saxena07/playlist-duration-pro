@@ -8,7 +8,9 @@
     "default_popup": "popup.html",
     "default_icon": "icons/icon.png"
   },
-  "host_permissions": ["https://youtube.googleapis.com/"],
+  "host_permissions": [
+  "https://playlist-duration-pro.onrender.com/*"
+],
   "icons": {
     "128": "icons/icon.png"
   }

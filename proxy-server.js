@@ -11,7 +11,7 @@ const YT_API_KEY = process.env.YOUTUBE_API_KEY;
 // Security middleware
 app.use(
   cors({
-    origin: ["chrome-extension://bimngffbkhoijkdapggkdeddfiaodkhj"], // Replace with your extension ID
+    origin: ["chrome-extension://akbencbkpeoampbnpgbaeaknhcfigakp"], // Replace with your extension ID
   })
 );
 
