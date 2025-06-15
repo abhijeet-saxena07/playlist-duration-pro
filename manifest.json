@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Playlist Duration Pro",
+  "description": "Accurately calculate total duration and individual video times for YouTube playlists",
+  "version": "1.0.0",
+  "author": "Abhijeet Saxena",
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "icons/icon.png"
+  },
+  "host_permissions": ["https://youtube.googleapis.com/"],
+  "icons": {
+    "128": "icons/icon.png"
+  }
+}
+  

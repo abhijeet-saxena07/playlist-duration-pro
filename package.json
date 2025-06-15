@@ -1,0 +1,19 @@
+{
+  "name": "playlist-duration-pro",
+  "version": "1.0.0",
+  "description": "- Instantly calculates total duration of any YouTube playlist\r - Lists all videos with individual durations\r - Simple, clean interface\r - Paste playlist URL, get results immediately\r - Helps plan viewing time efficiently",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.10.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "express-rate-limit": "^7.5.0"
+  }
+}
