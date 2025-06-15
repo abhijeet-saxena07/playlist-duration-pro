@@ -6,7 +6,7 @@ const PROXY_URL = "https://playlist-duration-pro.onrender.com";
 
 async function fetchPlaylistData() {
   const inputField = document.getElementById("playlistInput");
-  const playlistUrl = inputField.value;
+  const playlistUrl = inputField.value.trim();
   const playlistId = getPlaylistId(playlistUrl);
 
   if (!playlistId) {
@@ -15,33 +15,41 @@ async function fetchPlaylistData() {
   }
 
   try {
-    console.log("Fetching playlist data..."); // Debug log
     const playlistData = await fetchPlaylistItems(playlistId);
 
-    // Validate playlist data structure
-    if (!playlistData?.items || !Array.isArray(playlistData.items)) {
-      throw new Error("Playlist data is empty or invalid");
+    // Validate playlist items structure
+    if (
+      !playlistData ||
+      !playlistData.items ||
+      !Array.isArray(playlistData.items)
+    ) {
+      throw new Error("Received invalid playlist data structure");
     }
 
-    console.log("Playlist data received:", playlistData); // Debug log
-
-    const videoIds = playlistData.items.map((item) => {
-      if (!item?.contentDetails?.videoId) {
-        console.error("Invalid playlist item:", item);
-        throw new Error("Missing videoId in playlist item");
+    // Safely extract video IDs with validation
+    const videoIds = [];
+    for (const item of playlistData.items) {
+      if (!item || !item.contentDetails || !item.contentDetails.videoId) {
+        console.warn("Skipping invalid playlist item:", item);
+        continue;
       }
-      return item.contentDetails.videoId;
-    });
+      videoIds.push(item.contentDetails.videoId);
+    }
 
-    console.log("Fetching video details..."); // Debug log
+    if (videoIds.length === 0) {
+      throw new Error("No valid videos found in playlist");
+    }
+
     const videoDetails = await fetchVideoDetails(videoIds);
 
     // Validate video details structure
-    if (!videoDetails?.items || !Array.isArray(videoDetails.items)) {
-      throw new Error("Video details are empty or invalid");
+    if (
+      !videoDetails ||
+      !videoDetails.items ||
+      !Array.isArray(videoDetails.items)
+    ) {
+      throw new Error("Received invalid video details structure");
     }
-
-    console.log("Video details received:", videoDetails); // Debug log
 
     const videosWithDurations = combinePlaylistAndVideoData(
       playlistData,
@@ -52,12 +60,13 @@ async function fetchPlaylistData() {
     displayTotalDuration(totalDuration);
     displayVideoTable(videosWithDurations);
   } catch (error) {
-    console.error("Full error details:", error); // More detailed error logging
-    showError("Failed to load playlist. Please check the URL and try again.");
+    console.error("Playlist fetch failed:", error);
+    showError(error.message || "Failed to load playlist data");
   }
 }
 
 function getPlaylistId(url) {
+  if (!url) return null;
   const regex = /[&?]list=([a-zA-Z0-9_-]{18,34})/;
   const match = url.match(regex);
   return match ? match[1] : null;
@@ -70,22 +79,21 @@ async function fetchPlaylistItems(playlistId) {
     );
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error("Proxy error response:", errorData);
-      throw new Error(`Proxy request failed with status ${response.status}`);
+      const errorText = await response.text();
+      throw new Error(`Server responded with ${response.status}: ${errorText}`);
     }
 
     const data = await response.json();
 
-    if (!data?.items) {
-      console.error("Invalid playlist data structure:", data);
-      throw new Error("Invalid playlist data received from proxy");
+    // Validate basic response structure
+    if (!data || typeof data !== "object") {
+      throw new Error("Invalid response format from server");
     }
 
     return data;
   } catch (error) {
-    console.error("Error in fetchPlaylistItems:", error);
-    throw error;
+    console.error("Failed to fetch playlist items:", error);
+    throw new Error("Could not retrieve playlist data");
   }
 }
 
@@ -96,66 +104,92 @@ async function fetchVideoDetails(videoIds) {
     );
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error("Video details error response:", errorData);
-      throw new Error(
-        `Video details request failed with status ${response.status}`
-      );
+      const errorText = await response.text();
+      throw new Error(`Server responded with ${response.status}: ${errorText}`);
     }
 
     const data = await response.json();
 
-    if (!data?.items) {
-      console.error("Invalid video details structure:", data);
-      throw new Error("Invalid video details received from proxy");
+    // Validate basic response structure
+    if (!data || typeof data !== "object") {
+      throw new Error("Invalid response format from server");
     }
 
     return data;
   } catch (error) {
-    console.error("Error in fetchVideoDetails:", error);
-    throw error;
+    console.error("Failed to fetch video details:", error);
+    throw new Error("Could not retrieve video details");
   }
 }
 
 function combinePlaylistAndVideoData(playlistData, videoDetails) {
   return playlistData.items.map((item, index) => {
-    // Safely handle missing data
-    const fallbackThumbnail = "https://via.placeholder.com/120x90";
-    const fallbackTitle = "Untitled Video";
+    // Fallback values
+    const fallback = {
+      thumbnail: "https://i.ytimg.com/vi/default.jpg",
+      title: "Untitled Video",
+      duration: { hours: 0, minutes: 0, seconds: 0 },
+      url: "https://youtube.com",
+    };
 
-    // Validate video details exist for this index
-    const duration = videoDetails.items?.[index]?.contentDetails?.duration
-      ? parseDuration(videoDetails.items[index].contentDetails.duration)
-      : { hours: 0, minutes: 0, seconds: 0 };
+    // Skip if item is invalid
+    if (!item || !item.snippet || !item.contentDetails) {
+      return fallback;
+    }
+
+    // Get duration (if available)
+    let duration = fallback.duration;
+    if (
+      videoDetails.items &&
+      videoDetails.items[index] &&
+      videoDetails.items[index].contentDetails
+    ) {
+      try {
+        duration = parseDuration(
+          videoDetails.items[index].contentDetails.duration
+        );
+      } catch (e) {
+        console.warn("Failed to parse duration:", e);
+      }
+    }
 
     return {
-      thumbnail: item.snippet?.thumbnails?.medium?.url || fallbackThumbnail,
-      title: item.snippet?.title || fallbackTitle,
+      thumbnail: item.snippet.thumbnails?.medium?.url || fallback.thumbnail,
+      title: item.snippet.title || fallback.title,
       duration: duration,
-      url: `https://www.youtube.com/watch?v=${item.contentDetails.videoId}`,
+      url: `https://www.youtube.com/watch?v=${
+        item.contentDetails.videoId || ""
+      }`,
     };
   });
 }
 
 function parseDuration(duration) {
-  try {
-    const matches = duration.match(/PT(\d+H)?(\d+M)?(\d+S)?/);
-    const hours = parseInt(matches[1]) || 0;
-    const minutes = parseInt(matches[2]) || 0;
-    const seconds = parseInt(matches[3]) || 0;
-    return { hours, minutes, seconds };
-  } catch (error) {
-    console.error("Error parsing duration:", duration, error);
+  if (!duration || typeof duration !== "string") {
     return { hours: 0, minutes: 0, seconds: 0 };
   }
+
+  const matches = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  return {
+    hours: parseInt(matches[1]) || 0,
+    minutes: parseInt(matches[2]) || 0,
+    seconds: parseInt(matches[3]) || 0,
+  };
 }
 
 function calculateTotalDuration(videos) {
   return videos.reduce(
     (total, video) => {
-      total.hours += video.duration.hours;
-      total.minutes += video.duration.minutes;
       total.seconds += video.duration.seconds;
+      total.minutes += video.duration.minutes;
+      total.hours += video.duration.hours;
+
+      // Normalize overflow
+      total.minutes += Math.floor(total.seconds / 60);
+      total.seconds = total.seconds % 60;
+      total.hours += Math.floor(total.minutes / 60);
+      total.minutes = total.minutes % 60;
+
       return total;
     },
     { hours: 0, minutes: 0, seconds: 0 }
@@ -163,19 +197,11 @@ function calculateTotalDuration(videos) {
 }
 
 function displayTotalDuration(duration) {
-  const { hours, minutes, seconds } = normalizeTime(duration);
+  const { hours, minutes, seconds } = duration;
   const totalDurationElement = document.getElementById("totalDuration");
   totalDurationElement.textContent = `Total Duration: ${hours}h ${minutes}m ${seconds}s`;
   totalDurationElement.style.display = "block";
   totalDurationElement.style.color = "#0a84ff";
-}
-
-function normalizeTime({ hours, minutes, seconds }) {
-  minutes += Math.floor(seconds / 60);
-  seconds %= 60;
-  hours += Math.floor(minutes / 60);
-  minutes %= 60;
-  return { hours, minutes, seconds };
 }
 
 function displayVideoTable(videos) {
@@ -190,10 +216,11 @@ function displayVideoTable(videos) {
     row.innerHTML = `
             <td>
                 <a href="${video.url}" target="_blank" class="video-link">
-                    <img src="${video.thumbnail}" alt="${
-      video.title
-    }" class="video-thumbnail">
-                    <svg class="link-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-right"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>
+                    <img src="${video.thumbnail}" alt="${video.title.replace(
+      /"/g,
+      "&quot;"
+    )}" class="video-thumbnail">
+                    <svg class="link-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>
                 </a>
             </td>
             <td>
