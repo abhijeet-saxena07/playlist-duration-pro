@@ -3,6 +3,7 @@ document
   .addEventListener("click", fetchPlaylistData);
 
 const PROXY_URL = "https://playlist-duration-pro.onrender.com";
+const FALLBACK_THUMBNAIL = "https://i.ytimg.com/vi/default.jpg";
 
 async function fetchPlaylistData() {
   const inputField = document.getElementById("playlistInput");
@@ -15,26 +16,19 @@ async function fetchPlaylistData() {
   }
 
   try {
+    showLoading(true);
+
     const playlistData = await fetchPlaylistItems(playlistId);
 
-    // Validate playlist items structure
-    if (
-      !playlistData ||
-      !playlistData.items ||
-      !Array.isArray(playlistData.items)
-    ) {
-      throw new Error("Received invalid playlist data structure");
+    // Validate playlist data structure
+    if (!playlistData?.items || !Array.isArray(playlistData.items)) {
+      throw new Error("Invalid playlist data received from server");
     }
 
     // Safely extract video IDs with validation
-    const videoIds = [];
-    for (const item of playlistData.items) {
-      if (!item || !item.contentDetails || !item.contentDetails.videoId) {
-        console.warn("Skipping invalid playlist item:", item);
-        continue;
-      }
-      videoIds.push(item.contentDetails.videoId);
-    }
+    const videoIds = playlistData.items
+      .filter((item) => item?.contentDetails?.videoId)
+      .map((item) => item.contentDetails.videoId);
 
     if (videoIds.length === 0) {
       throw new Error("No valid videos found in playlist");
@@ -43,12 +37,8 @@ async function fetchPlaylistData() {
     const videoDetails = await fetchVideoDetails(videoIds);
 
     // Validate video details structure
-    if (
-      !videoDetails ||
-      !videoDetails.items ||
-      !Array.isArray(videoDetails.items)
-    ) {
-      throw new Error("Received invalid video details structure");
+    if (!videoDetails?.items || !Array.isArray(videoDetails.items)) {
+      throw new Error("Invalid video details received from server");
     }
 
     const videosWithDurations = combinePlaylistAndVideoData(
@@ -60,8 +50,10 @@ async function fetchPlaylistData() {
     displayTotalDuration(totalDuration);
     displayVideoTable(videosWithDurations);
   } catch (error) {
-    console.error("Playlist fetch failed:", error);
+    console.error("Error fetching playlist:", error);
     showError(error.message || "Failed to load playlist data");
+  } finally {
+    showLoading(false);
   }
 }
 
@@ -80,17 +72,10 @@ async function fetchPlaylistItems(playlistId) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Server responded with ${response.status}: ${errorText}`);
+      throw new Error(`Server error: ${response.status} - ${errorText}`);
     }
 
-    const data = await response.json();
-
-    // Validate basic response structure
-    if (!data || typeof data !== "object") {
-      throw new Error("Invalid response format from server");
-    }
-
-    return data;
+    return await response.json();
   } catch (error) {
     console.error("Failed to fetch playlist items:", error);
     throw new Error("Could not retrieve playlist data");
@@ -105,17 +90,10 @@ async function fetchVideoDetails(videoIds) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Server responded with ${response.status}: ${errorText}`);
+      throw new Error(`Server error: ${response.status} - ${errorText}`);
     }
 
-    const data = await response.json();
-
-    // Validate basic response structure
-    if (!data || typeof data !== "object") {
-      throw new Error("Invalid response format from server");
-    }
-
-    return data;
+    return await response.json();
   } catch (error) {
     console.error("Failed to fetch video details:", error);
     throw new Error("Could not retrieve video details");
@@ -126,7 +104,7 @@ function combinePlaylistAndVideoData(playlistData, videoDetails) {
   return playlistData.items.map((item, index) => {
     // Fallback values
     const fallback = {
-      thumbnail: "https://i.ytimg.com/vi/default.jpg",
+      thumbnail: FALLBACK_THUMBNAIL,
       title: "Untitled Video",
       duration: { hours: 0, minutes: 0, seconds: 0 },
       url: "https://youtube.com",
@@ -137,19 +115,15 @@ function combinePlaylistAndVideoData(playlistData, videoDetails) {
       return fallback;
     }
 
-    // Get duration (if available)
+    // Get duration if available
     let duration = fallback.duration;
-    if (
-      videoDetails.items &&
-      videoDetails.items[index] &&
-      videoDetails.items[index].contentDetails
-    ) {
+    if (videoDetails.items?.[index]?.contentDetails?.duration) {
       try {
         duration = parseDuration(
           videoDetails.items[index].contentDetails.duration
         );
       } catch (e) {
-        console.warn("Failed to parse duration:", e);
+        console.warn("Duration parse error:", e);
       }
     }
 
@@ -216,11 +190,13 @@ function displayVideoTable(videos) {
     row.innerHTML = `
             <td>
                 <a href="${video.url}" target="_blank" class="video-link">
-                    <img src="${video.thumbnail}" alt="${video.title.replace(
-      /"/g,
-      "&quot;"
-    )}" class="video-thumbnail">
-                    <svg class="link-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg>
+                    <img src="${video.thumbnail}" 
+                         alt="${video.title.replace(/"/g, "&quot;")}" 
+                         class="video-thumbnail"
+                         onerror="this.src='${FALLBACK_THUMBNAIL}'">
+                    <svg class="link-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24">
+                        <path d="M7 7h10v10M7 17 17 7"/>
+                    </svg>
                 </a>
             </td>
             <td>
@@ -246,4 +222,18 @@ function showError(message) {
   totalDurationElement.textContent = message;
   totalDurationElement.style.color = "#ff3b30";
   totalDurationElement.style.display = "block";
+}
+
+function showLoading(isLoading) {
+  const button = document.getElementById("fetchButton");
+  if (isLoading) {
+    button.innerHTML = '<div class="spinner"></div>';
+    button.disabled = true;
+  } else {
+    button.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>`;
+    button.disabled = false;
+  }
 }
